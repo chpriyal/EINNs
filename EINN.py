@@ -10,14 +10,14 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import json
 import argparse
-import random 
+import random
 from torch.nn.utils.rnn import pad_sequence
 dtype = torch.float
 import itertools
 from sklearn.preprocessing import StandardScaler
 from model_utils import *
-from data_utils import * 
-import pdb 
+from data_utils import *
+import pdb
 
 dtype = torch.float
 regions = all_hhs_regions  # for rnn
@@ -35,7 +35,7 @@ class EINN(nn.Module):
         np.random.seed(SEED)
 
         # read testbed setup
-        self.ode_model = 'SEIRm'  
+        self.ode_model = 'SEIRm'
         self.exp = args.exp
         self.get_hyperparameters()
         self.pred_week = args.pred_week
@@ -71,8 +71,8 @@ class EINN(nn.Module):
                 # change from M to m (from cumulative to incidence mortality)
                 S_rmse[:,4] = y.ravel()
             except:
-                print(region)  
-                raise Exception(f'not {region} in ODE calibration')  
+                print(region)
+                raise Exception(f'not {region} in ODE calibration')
             self.initial_conditions[region] = S_rmse[0,:]
             self.end_point[region] = S_rmse[-1,:]
             r_S_rmse.append(S_rmse)
@@ -114,12 +114,12 @@ class EINN(nn.Module):
                 seqs.append(torch.arange(idx,idx+sequence_length))
             seqs = pad_sequence(seqs,batch_first=True).type(dtype)
             return seqs
-        
+
         states, seqs, seqs_masks, y, y_mask, y_weights, rmse_seqs, time_seqs = [], [], [], [], [], [], [], []
         test_states, test_seqs, test_seqs_masks, test_time_seq = [], [], [], []
         for region, seq, ys, rmse in zip(regions, r_seqs_norm, r_ys_norm, r_rmse_norm):
             ys_weights = np.ones((ys.shape[0],1))
-            ys_weights[-14:] *= 5 
+            ys_weights[-14:] *= 5
             seq, seq_mask, ys, ys_mask, ys_weight, rmse_seq = create_window_seqs(seq,rmse,ys,ys_weights,min_sequence_length)
             # normal
             states.extend([region for _ in range(seq.shape[0])])
@@ -138,7 +138,7 @@ class EINN(nn.Module):
             test_seqs.append(seq[[-1]]); test_seqs_masks.append(seq_mask[[-1]])
             test_time_seq.append(time_seq[[-1]])
 
-        # train and validation data, combine 
+        # train and validation data, combine
         regions_train = np.array(states, dtype="str").tolist()
         X_train = torch.cat(seqs,axis=0).float().numpy()
         X_mask_train = torch.cat(seqs_masks,axis=0).unsqueeze(2).float().numpy()
@@ -150,13 +150,13 @@ class EINN(nn.Module):
 
 
         # same for test
-        regions_test = np.array(test_states, dtype="str").tolist() 
+        regions_test = np.array(test_states, dtype="str").tolist()
         X_test = torch.cat(test_seqs,axis=0).float().numpy()
         X_mask_test = torch.cat(test_seqs_masks,axis=0).unsqueeze(2).float().numpy()
         time_test = torch.cat(test_time_seq,axis=0).float().numpy()
         # for scaling time module
         self.t_min = torch.tensor(time_train.min())
-        # t_max is also useful for ode future 
+        # t_max is also useful for ode future
         self.t_max = torch.tensor(time_train.max())
 
         # convert dataset to use in dataloader
@@ -164,19 +164,19 @@ class EINN(nn.Module):
         # note: y_val, y_mask_val, y_weights_val, rmse_val, are not needed at test time
         empty = np.zeros_like(regions_test)
         test_dataset = SeqData(regions_test, X_test, X_mask_test, empty, empty, empty, empty, time_test)
-        
+
         # create dataloaders for each region
         self.data_loaders = {}
         for r in regions:
             idx = torch.tensor(np.isin(train_dataset.region,r)) #== r
             dset_train = torch.utils.data.dataset.Subset(train_dataset, np.where(idx)[0])
-            r_train_loader = torch.utils.data.DataLoader(dset_train, batch_size=self.batch_size, shuffle=True, pin_memory=True) 
+            r_train_loader = torch.utils.data.DataLoader(dset_train, batch_size=self.batch_size, shuffle=True, pin_memory=True)
             self.data_loaders[r] = r_train_loader
         print(time.time() - start ,' seconds')
         # test data loader is small so we can use only one
         self.test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=self.batch_size, shuffle=True, pin_memory=True)
 
-        """ create set of ODEs""" 
+        """ create set of ODEs"""
         df = pd.read_csv(population_path,index_col='region')
         self.pop = {}
         for region in regions:
@@ -204,7 +204,7 @@ class EINN(nn.Module):
                 device=self.device,
                 pop=self.pop
             ).to(self.device)
-                
+
         """ paths to save model """
         self.mod_path = './models/EINN/exp{}/{}/'.format(self.exp,self.region)
         self.rnnode_file_name = 'einn_{}_{}'.format(self.pred_week,self.ode_model)
@@ -244,10 +244,10 @@ class EINN(nn.Module):
             mod_path = './models/EINN/exp{}/{}/'.format(self.exp,region)
             if not os.path.exists(mod_path):
                 os.makedirs(mod_path)
-            save_model(mod_path+file_name,self,region)    
+            save_model(mod_path+file_name,self,region)
 
-        print('==== saved ====')    
-        
+        print('==== saved ====')
+
 
     def upload_odernn_local(self,suffix=''):
 
@@ -277,20 +277,20 @@ class EINN(nn.Module):
         print('load complete')
 
     def forward_feature(self,region,X,X_mask,time_seq):
-        ''' 
+        '''
             Feature module forward pass
         '''
         X_embeds = self.encoder.mods['encoder_'+region[0]].forward_mask(X.transpose(1, 0), X_mask.transpose(1, 0))
         time_seq = time_seq[:,-WEEKS_AHEAD*DAY_WEEK_MULTIPLIER:,:]
         Hi_data = (time_seq - self.t_min)/(self.t_max - self.t_min)
         emb_prime = self.decoder.mods['decoder_'+region[0]](Hi_data,X_embeds)
-        states_prime = self.out_layer.mods['output_'+region[0]](emb_prime) 
+        states_prime = self.out_layer.mods['output_'+region[0]](emb_prime)
         return states_prime, emb_prime
 
     def forward_time(self,region,time_seq):
-        ''' 
+        '''
             Time module forward pass
-            Works for a single region at the time 
+            Works for a single region at the time
         '''
         inputi_data = time_seq.permute(1,0,2)
         Hi_data = (inputi_data - self.t_min)/(self.t_max - self.t_min)
@@ -298,32 +298,32 @@ class EINN(nn.Module):
         statesi_data = self.out_layer.mods['output_'+region[0]](emb_Ei_data)
 
         return statesi_data.permute(1,0,2), emb_Ei_data.permute(1,0,2)
-        
+
     def forward_ode(self,region,time_seq):
         """
             Compute ds/dt for time module
         """
         # pass w/ require grad
-        t_eqns = torch.tensor(time_seq,requires_grad=True)
+        t_eqns = time_seq.clone().detach().requires_grad_(True)
         states_eqns, _ = self.forward_time(region,t_eqns)
 
         # scale to get gradients
         states_eqns = self.rmse_scalers[region[0]].inverse_transform(states_eqns)
-        
+
         ones_tensor = torch.ones_like(t_eqns,device=self.device)
-        stateS_dt = torch.autograd.grad(states_eqns[:,:,[0]],t_eqns,grad_outputs=ones_tensor,create_graph=True) 
-        stateE_dt = torch.autograd.grad(states_eqns[:,:,[1]],t_eqns,grad_outputs=ones_tensor,create_graph=True) 
-        stateI_dt = torch.autograd.grad(states_eqns[:,:,[2]],t_eqns,grad_outputs=ones_tensor,create_graph=True) 
-        stateR_dt = torch.autograd.grad(states_eqns[:,:,[3]],t_eqns,grad_outputs=ones_tensor,create_graph=True) 
+        stateS_dt = torch.autograd.grad(states_eqns[:,:,[0]],t_eqns,grad_outputs=ones_tensor,create_graph=True)
+        stateE_dt = torch.autograd.grad(states_eqns[:,:,[1]],t_eqns,grad_outputs=ones_tensor,create_graph=True)
+        stateI_dt = torch.autograd.grad(states_eqns[:,:,[2]],t_eqns,grad_outputs=ones_tensor,create_graph=True)
+        stateR_dt = torch.autograd.grad(states_eqns[:,:,[3]],t_eqns,grad_outputs=ones_tensor,create_graph=True)
         state_dt = torch.cat((stateS_dt[0], stateE_dt[0], stateI_dt[0], stateR_dt[0]), 2)
         return states_eqns, state_dt
-    
+
     def forward_gradient_feat(self,region,X,X_mask,time_seq):
         """ forward pass to calculate ds/dt for feature module """
 
         """ calculate de/dt via time module """
         t_eqns = time_seq[:,-WEEKS_AHEAD*DAY_WEEK_MULTIPLIER:]
-        inputi_eqns = torch.tensor(t_eqns.permute(1,0,2),requires_grad=True)
+        inputi_eqns = t_eqns.permute(1,0,2).clone().detach().requires_grad_(True) #torch.tensor(t_eqns.permute(1,0,2),requires_grad=True)
         Hi_data = (inputi_eqns - self.t_min)/(self.t_max - self.t_min)
         emb_Ei_eqns = self.time_nn_mod.time_mods['time_nn_'+region[0]](Hi_data)
         dEdt = []
@@ -338,16 +338,16 @@ class EINN(nn.Module):
         """ calculate ds/de via feature module """
         _, emb_E_prime = self.forward_feature(region,X,X_mask,time_seq)
         # forward pass over the same feature module but saves grad on input
-        # should do scaling as per self.predict_feature 
-        emb_E_grad = torch.tensor(emb_E_prime,requires_grad=True)
-        states_prime = self.out_layer.mods['output_'+region[0]](emb_E_grad) 
+        # should do scaling as per self.predict_feature
+        emb_E_grad = emb_E_prime.clone().detach().requires_grad_(True)#torch.tensor(emb_E_prime,requires_grad=True)
+        states_prime = self.out_layer.mods['output_'+region[0]](emb_E_grad)
         # scale to get gradients
         states_prime = self.rmse_scalers[region[0]].inverse_transform(states_prime)
         ones_tensor = torch.ones_like(states_prime[:,:,4],device=self.device)
-        stateS_de = torch.autograd.grad(states_prime[:,:,0],emb_E_grad,grad_outputs=ones_tensor,create_graph=True)[0] 
-        stateE_de = torch.autograd.grad(states_prime[:,:,1],emb_E_grad,grad_outputs=ones_tensor,create_graph=True)[0] 
-        stateI_de = torch.autograd.grad(states_prime[:,:,2],emb_E_grad,grad_outputs=ones_tensor,create_graph=True)[0] 
-        stateR_de = torch.autograd.grad(states_prime[:,:,3],emb_E_grad,grad_outputs=ones_tensor,create_graph=True)[0] 
+        stateS_de = torch.autograd.grad(states_prime[:,:,0],emb_E_grad,grad_outputs=ones_tensor,create_graph=True)[0]
+        stateE_de = torch.autograd.grad(states_prime[:,:,1],emb_E_grad,grad_outputs=ones_tensor,create_graph=True)[0]
+        stateI_de = torch.autograd.grad(states_prime[:,:,2],emb_E_grad,grad_outputs=ones_tensor,create_graph=True)[0]
+        stateR_de = torch.autograd.grad(states_prime[:,:,3],emb_E_grad,grad_outputs=ones_tensor,create_graph=True)[0]
 
         """ multiply previous two results """
         stateS_dt = (dEdt * stateS_de).sum(2).unsqueeze(2)
@@ -355,7 +355,7 @@ class EINN(nn.Module):
         stateI_dt = (dEdt * stateI_de).sum(2).unsqueeze(2)
         stateR_dt = (dEdt * stateR_de).sum(2).unsqueeze(2)
         gradient_feat = torch.cat((stateS_dt, stateE_dt, stateI_dt, stateR_dt), 2)
-        return states_prime, gradient_feat 
+        return states_prime, gradient_feat
 
     def data_loss(self,states_data,y,y_mask,y_w):
         """ data loss for time module """
@@ -389,8 +389,8 @@ class EINN(nn.Module):
         return feat_data_loss
 
     def aux_loss(self,states_data,y_mask,rmse_seq):
-        """ 
-            uses analytical data as auxliary aid for learning hidden dynamics 
+        """
+            uses analytical data as auxliary aid for learning hidden dynamics
         """
         cols_select = np.array([True, True, True, True, False])
         ys_data_mask = y_mask.unsqueeze(2).expand(-1,-1,4)
@@ -418,7 +418,7 @@ class EINN(nn.Module):
 
         # scale y
         ys = self.ys_scalers[region[0]].inverse_transform(y)
-        
+
         dstate_time_nn = []
         ode_loss = torch.tensor(0.,dtype=dtype,device=self.device)
         # we go over each row, which represents a sequence of predictions that follow an ode
@@ -432,23 +432,23 @@ class EINN(nn.Module):
             ode_loss_i = (
                     F.mse_loss(torch.zeros_like(dstate[:,:4]),
                     (dstate[:,:4]-state_dt[rowi,:,:])/self.S_scale[region[0]][:4],reduction='none') * \
-                        ys_eqns_mask[rowi,:,:4] * ys_eqns_weights[rowi,:,:4] 
-                    ).sum(0)  
-            ode_loss += ode_loss_i.sum()   
+                        ys_eqns_mask[rowi,:,:4] * ys_eqns_weights[rowi,:,:4]
+                    ).sum(0)
+            ode_loss += ode_loss_i.sum()
             dstate_time_nn.append(dstate.unsqueeze(0))
         dstate_time_nn = torch.cat(dstate_time_nn,axis=0)
-        
+
         # dstate is coming from ode eqns, we want to make dIM to be equal to inc deaths
         # there is no dIM in autograd outgrad, so we don't need to do it
         criterion = nn.MSELoss(reduction='none')
         ode_loss += (criterion(
             dstate_time_nn[:,:,4] /self.S_scale[region[0]][4],  # S_scale[4] comes from ground truth, do not change to S_grad_scale
             ys[:,:,0] /self.S_scale[region[0]][4]
-            ) * ys_eqns_mask[:,:,4] * ys_eqns_weights[:,:,4] 
+            ) * ys_eqns_mask[:,:,4] * ys_eqns_weights[:,:,4]
             ).sum()
-        
+
         # finally divide by all tokens
-        ode_loss /= (total_eqns_target_tokens)  
+        ode_loss /= (total_eqns_target_tokens)
         return ode_loss
 
     def future_ode_loss(self,region,states_eqns,state_dt,time_seq,y_mask):
@@ -474,9 +474,9 @@ class EINN(nn.Module):
             ode_loss_i = (
                     F.mse_loss(torch.zeros_like(dstate[:,:4]),
                     (dstate[:,:4]-state_dt[rowi,:,:])/self.S_scale[region[0]][:4],reduction='none') * \
-                        ys_eqns_mask[rowi,:,:4] 
+                        ys_eqns_mask[rowi,:,:4]
                     ).sum(0)  # element-wise scaling
-            ode_loss += ode_loss_i.sum()   
+            ode_loss += ode_loss_i.sum()
             dstate_time_nn.append(dstate.unsqueeze(0))
         dstate_time_nn = torch.cat(dstate_time_nn,axis=0)
 
@@ -485,12 +485,12 @@ class EINN(nn.Module):
         criterion = nn.MSELoss(reduction='none')
         ode_loss += (
             criterion(
-                dstate_time_nn[:,:,4] /self.S_scale[region[0]][4], 
+                dstate_time_nn[:,:,4] /self.S_scale[region[0]][4],
                 states_eqns[:,:,4] /self.S_scale[region[0]][4]
-            )* ys_eqns_mask[:,:,4] 
+            )* ys_eqns_mask[:,:,4]
             ).sum()
         # finally divide by all tokens
-        ode_loss /= (total_eqns_target_tokens)  
+        ode_loss /= (total_eqns_target_tokens)
         return ode_loss
 
     def kd_loss(self,states_data,states_prime,emb_E,emb_E_prime,y_mask,y_w):
@@ -512,19 +512,19 @@ class EINN(nn.Module):
                 states_prime,  # 0 because feat module only predict that
                 states_data
                 ) * ys_data_mask  * ys_data_weights
-            ).sum(2) 
+            ).sum(2)
             ).sum() / total_data_target_tokens
-        
+
         kd_loss_emb = (
                 (criterion(
                     emb_E_prime,
                     emb_E
                     ).mean(2) * ys_data_mask[:,:,4] * ys_data_weights[:,:,4] # use one column of mask as we use mean
-                ) 
+                )
                 ).sum() / (total_data_target_tokens/5)
         return kd_loss_target, kd_loss_emb
 
-    
+
     def feat_ode_loss_mse(self,region,states_feat,feat_dt,time_seq,y,y_mask,y_w):
         """
             ODE loss for feature module
@@ -537,7 +537,7 @@ class EINN(nn.Module):
 
         # scale y
         y = self.ys_scalers[region[0]].inverse_transform(y)
-        
+
         dstate_time_nn = []
         ode_loss = torch.tensor(0.,dtype=dtype,device=self.device)
 
@@ -555,10 +555,10 @@ class EINN(nn.Module):
             ode_loss_i = (
                     # F.mse_loss(torch.zeros_like(dstate),(dstate-state_dt[rowi,:,:4])/self.S_grad_scale[:4],reduction='none') * ys_eqns_mask[rowi,:].expand(self.no_ode_states-1, -1).transpose(1,0)
                     F.mse_loss(torch.zeros_like(dstate[:,:4]),
-                    (dstate[:,:4]-feat_dt[rowi,:,:])/self.S_scale[region[0]][:4],reduction='none') * 
-                    ys_eqns_mask[rowi,:,:4] * ys_eqns_weights[rowi,:,:4] 
-                    ).sum(0) 
-            ode_loss += ode_loss_i.sum()   
+                    (dstate[:,:4]-feat_dt[rowi,:,:])/self.S_scale[region[0]][:4],reduction='none') *
+                    ys_eqns_mask[rowi,:,:4] * ys_eqns_weights[rowi,:,:4]
+                    ).sum(0)
+            ode_loss += ode_loss_i.sum()
             dstate_time_nn.append(dstate.unsqueeze(0))
         dstate_time_nn = torch.cat(dstate_time_nn,axis=0)
 
@@ -567,12 +567,12 @@ class EINN(nn.Module):
         criterion = nn.MSELoss(reduction='none')
         ode_loss += (
             criterion(
-                dstate_time_nn[:,:,4] /self.S_scale[region[0]][4], 
+                dstate_time_nn[:,:,4] /self.S_scale[region[0]][4],
                 y[:,-WEEKS_AHEAD*DAY_WEEK_MULTIPLIER:,0] /self.S_scale[region[0]][4]
-            ) * ys_eqns_mask[:,:,4] * ys_eqns_weights[:,:,4] 
+            ) * ys_eqns_mask[:,:,4] * ys_eqns_weights[:,:,4]
             ).sum()
         # finally divide by all tokens
-        ode_loss /= (total_eqns_target_tokens)  
+        ode_loss /= (total_eqns_target_tokens)
         return ode_loss
 
     def future_feat_ode_loss(self,region,states_eqns,state_dt,time_seq,y_mask):
@@ -598,9 +598,9 @@ class EINN(nn.Module):
             ode_loss_i = (
                     F.mse_loss(torch.zeros_like(dstate[:,:4]),
                     (dstate[:,:4]-state_dt[rowi,:,:])/self.S_scale[region[0]][:4],reduction='none') * \
-                        ys_eqns_mask[rowi,:,:4] 
+                        ys_eqns_mask[rowi,:,:4]
                     ).sum(0)  # element-wise scaling
-            ode_loss += ode_loss_i.sum()   
+            ode_loss += ode_loss_i.sum()
             dstate_time_nn.append(dstate.unsqueeze(0))
         dstate_time_nn = torch.cat(dstate_time_nn,axis=0)
         # dstate is coming from ode eqns, we want to make dIM to be equal to inc deaths
@@ -608,18 +608,18 @@ class EINN(nn.Module):
         criterion = nn.MSELoss(reduction='none')
         ode_loss += (
             criterion(
-                dstate_time_nn[:,:,4] /self.S_scale[region[0]][4], 
+                dstate_time_nn[:,:,4] /self.S_scale[region[0]][4],
                 states_eqns[:,:,4] /self.S_scale[region[0]][4]
-            )* ys_eqns_mask[:,:,4] 
+            )* ys_eqns_mask[:,:,4]
             ).sum()
         # finally divide by all tokens
-        ode_loss /= (total_eqns_target_tokens)  
+        ode_loss /= (total_eqns_target_tokens)
         return ode_loss
 
     def ode_param_loss(self,region,time_seq,y_mask):
-        """ 
-            ODE parameter loss aims to make 
-                these parameters change smoothly 
+        """
+            ODE parameter loss aims to make
+                these parameters change smoothly
         """
         t_eqns = time_seq.detach()
         ys_eqns_mask = y_mask
@@ -636,7 +636,7 @@ class EINN(nn.Module):
                 # do not consider the ones that do not belong to the sequence of interest
                 if ys_eqns_mask[rowi,j]==0:
                     break
-                ode_id = region[0] + ' ode_'+str(int(t.item())) 
+                ode_id = region[0] + ' ode_'+str(int(t.item()))
                 ode_param = self.ode.ode_mods[ode_id].get_param_vector()
                 if prev_ode_param is not None:
                     ode_param_loss += criterion(prev_ode_param,ode_param)
@@ -647,7 +647,7 @@ class EINN(nn.Module):
 
     def monotonicity_loss(self,region,state_dt,y_mask):
         """
-            calculates monotonicity loss 
+            calculates monotonicity loss
 
             @param state_dt: autograd derivative
                 is coming from forward ode
@@ -660,14 +660,14 @@ class EINN(nn.Module):
         # we want ds/dt <= 0
         # then, min ds/dt * relu(ds/dt)
         # penalizes when ds/dt is positive
-        monotonicity_loss = state_dt[:,:,0] * F.relu(state_dt[:,:,0]) /self.S_scale[region[0]][0] * ys_eqns_mask 
+        monotonicity_loss = state_dt[:,:,0] * F.relu(state_dt[:,:,0]) /self.S_scale[region[0]][0] * ys_eqns_mask
         # Recovered monotonically increases
         # we want dR/dt >= 0
         # then, min -dR/dt * relu(-dR/dt)
         # penalizes when dR/dt is negative
         monotonicity_loss += -1*state_dt[:,:,3] * F.relu(-1*state_dt[:,:,3]) /self.S_scale[region[0]][3] * ys_eqns_mask
-        
-        monotonicity_loss = monotonicity_loss.sum() / (2*total_eqns_target_tokens) 
+
+        monotonicity_loss = monotonicity_loss.sum() / (2*total_eqns_target_tokens)
         return monotonicity_loss
 
     def set_ode_static(self):
@@ -752,7 +752,7 @@ class EINN(nn.Module):
         # read best hyperparams found for region
         if os.path.exists(best_model_params_json_file):
             print('test mode, using existing params json')
-            self.read_hyperparams_from_json(best_model_params_json_file) 
+            self.read_hyperparams_from_json(best_model_params_json_file)
         else:
             raise Exception(f'no setup file {best_model_params_json_file}')
 
@@ -786,7 +786,7 @@ class EINN(nn.Module):
         # if self.feat_mode:
         loss_names.extend(['kd_target','kd_emb','f_data_loss','gradient_losses'])
         losses.extend([self.kd_target_losses, self.kd_emb_losses, self.feat_data_losses, self.gradient_losses])
-        time = [i for i in range(len(losses[0]))]  
+        time = [i for i in range(len(losses[0]))]
         for loss_name, loss in zip(loss_names,losses):
             plt.yscale('log')
             plt.xlabel('epochs')
@@ -836,11 +836,11 @@ class EINN(nn.Module):
         df.to_csv(path+file_name,index=False)
 
     def predict_save(self,suffix=''):
-        
+
         self.eval()
         with torch.no_grad():  #saves memory
             # only one batch
-            region, X, X_mask, _, _, _, _, time_seq = next(iter(self.test_loader)) 
+            region, X, X_mask, _, _, _, _, time_seq = next(iter(self.test_loader))
             self.eval()
             X = X.to(self.device, non_blocking=True)
             X_mask = X_mask.to(self.device, non_blocking=True)
@@ -854,15 +854,15 @@ class EINN(nn.Module):
                 death_pred_feat = death_pred_feat.reshape(-1).detach().cpu().data.numpy()
                 self.save_predictions(region[i],death_pred_feat,''+suffix)
 
-    
+
     # https://github.com/AdityaLab/CAMul/blob/master/train_covid.py#L284
     def evaluate(self):
         # evaluates in training
         total_mse_error = []
         with torch.no_grad():
             # go over region because architecture depends on it
-            for r in np.random.permutation(regions): 
-                region, X, X_mask, y, y_mask, _, _, time_seq = next(iter(self.data_loaders[r])) 
+            for r in np.random.permutation(regions):
+                region, X, X_mask, y, y_mask, _, _, time_seq = next(iter(self.data_loaders[r]))
                 self.eval()
                 X = X.to(self.device, non_blocking=True)
                 X_mask = X_mask.to(self.device, non_blocking=True)
@@ -870,7 +870,7 @@ class EINN(nn.Module):
                 y = y.to(self.device, non_blocking=True)
                 y_mask = y_mask.to(self.device, non_blocking=True)
 
-                # forward feature module 
+                # forward feature module
                 states_prime, _ = self.forward_feature(region,X,X_mask,time_seq)
 
                 ys_data_mask = y_mask
@@ -882,7 +882,7 @@ class EINN(nn.Module):
                         y[:,-WEEKS_AHEAD*DAY_WEEK_MULTIPLIER:,0]
                     ) * ys_data_mask[:,-WEEKS_AHEAD*DAY_WEEK_MULTIPLIER:]
                     ).sum()
-                
+
                 mse_error /= total_data_target_tokens
                 total_mse_error.append(mse_error.cpu().item())
 
@@ -896,25 +896,25 @@ class EINN(nn.Module):
 
         ############## optimizers #############
         # time nn only
-        time_params = itertools.chain(self.time_nn_mod.parameters(),self.out_layer.parameters()) 
+        time_params = itertools.chain(self.time_nn_mod.parameters(),self.out_layer.parameters())
         optimizer_time = torch.optim.Adam(time_params, lr=self.lr, amsgrad=True)
         # time nn + ode only
         time_ode_params = itertools.chain(self.time_nn_mod.parameters(),self.ode.parameters(),\
-            self.out_layer.parameters())  
+            self.out_layer.parameters())
         optimizer_time_ode = torch.optim.Adam(time_ode_params, lr=self.lr, amsgrad=True)
         # time nn + ode + feature
         time_feat_params = itertools.chain(self.encoder.parameters(),self.decoder.parameters(),\
-            self.out_layer.parameters(),self.time_nn_mod.parameters())  
+            self.out_layer.parameters(),self.time_nn_mod.parameters())
         optimizer_time_feat = torch.optim.Adam(time_feat_params, lr=self.lr, amsgrad=True)
         # output layers + ode params
-        out_ode_params = itertools.chain(self.ode.parameters(),self.out_layer.parameters()) 
+        out_ode_params = itertools.chain(self.ode.parameters(),self.out_layer.parameters())
         optimizer_out_ode = torch.optim.Adam(out_ode_params, lr=self.lr)
         # will search for 1% improvement at least
         es = EarlyStopping(patience=20, min_delta=10, percentage=True)  # patience was 25
 
         self.epoch = 0
         self.train_start_flag.append(self.epoch)  # save epoch where we start this training, used in loss plot
-         
+
         self.best_loss = 10e3
 
 
@@ -947,7 +947,7 @@ class EINN(nn.Module):
                 self.set_ode_trainable()
                 self.set_out_layer_trainable()
                 self.minibatch_train(optimizer_time_ode,time_ode_params)
-           
+
             """ feat and time jointly """
             for _ in range(feat_time_reps):
                 self.train_time = True
@@ -979,18 +979,18 @@ class EINN(nn.Module):
             save_model = True
 
             print(f'Train RMSE: {rmse_val}, bad: {es.num_bad_epochs}' )
-            
+
             if rmse_val < self.best_loss:
                 print(f'>> best updated {self.exp} on {self.pred_week}, epoch {epoch}')
                 self.best_loss = torch.tensor(rmse_val)
                 if save_model:
                     self.save_odernn_local(suffix='-post')
-            ''' early stopping ''' 
+            ''' early stopping '''
             if self.early:
                 if self.epoch > self.patience_before_es:
                     if es.step(self.best_loss):
                         print('====BREAK, early stopping ===')
-                        break 
+                        break
 
 
     def minibatch_train(self,optims,params,verbose=True):
@@ -998,26 +998,26 @@ class EINN(nn.Module):
         self.epoch += 1
 
         epoch_total_loss = []
-        epoch_total_loss = [] 
-        epoch_ode_loss = [] 
-        epoch_future_ode_loss = [] 
-        epoch_data_loss = [] 
-        epoch_kd_target_loss = [] 
-        epoch_kd_emb_loss = [] 
-        epoch_feat_data_loss = [] 
-        epoch_ode_param_loss = [] 
-        epoch_monotonicity_loss = [] 
-        epoch_feat_ode_loss = [] 
-        epoch_future_feat_ode_loss = [] 
-        epoch_aux_loss = [] 
+        epoch_total_loss = []
+        epoch_ode_loss = []
+        epoch_future_ode_loss = []
+        epoch_data_loss = []
+        epoch_kd_target_loss = []
+        epoch_kd_emb_loss = []
+        epoch_feat_data_loss = []
+        epoch_ode_param_loss = []
+        epoch_monotonicity_loss = []
+        epoch_feat_ode_loss = []
+        epoch_future_feat_ode_loss = []
+        epoch_aux_loss = []
         i = 0
         self.train()
         start_time = time.time()
         optims.zero_grad(set_to_none=True)
         for r in np.random.permutation(regions):  # one region at the time
             # backprop = False
-            region, X, X_mask, y, y_mask, y_w, rmse_seq, time_seq = next(iter(self.data_loaders[r])) 
-            
+            region, X, X_mask, y, y_mask, y_w, rmse_seq, time_seq = next(iter(self.data_loaders[r]))
+
             X = X.to(self.device, non_blocking=True)
             X_mask = X_mask.to(self.device, non_blocking=True)
             time_seq = time_seq.to(self.device, non_blocking=True)
@@ -1026,11 +1026,11 @@ class EINN(nn.Module):
             y_w = y_w.to(self.device, non_blocking=True)
             rmse_seq = rmse_seq.to(self.device, non_blocking=True)
 
-            # forward feature module 
+            # forward feature module
             states_data, emb = self.forward_time(region,time_seq)
 
             if self.train_time:
-                
+
                 data_loss = self.data_loss(states_data,y,y_mask,y_w)
                 aux_loss = self.aux_loss(states_data,y_mask,rmse_seq)
 
@@ -1049,10 +1049,10 @@ class EINN(nn.Module):
                     ode_loss = torch.tensor(0.0,dtype=dtype,device=self.device)
                     future_ode_loss = torch.tensor(0.0,dtype=dtype,device=self.device)
                     ode_param_loss = torch.tensor(0.0,dtype=dtype,device=self.device)
-                
+
                 ''' Monotonicity loss '''
                 monotonicity_loss = self.monotonicity_loss(region,state_dt,eqns_y_mask)
-                
+
                 total_loss = self.loss_weights['data']*data_loss + \
                         self.loss_weights['aux']*aux_loss +\
                         self.loss_weights['ode']*ode_loss +\
@@ -1070,7 +1070,7 @@ class EINN(nn.Module):
 
             ''' KD loss '''
             if self.train_feat:
-                # forward feature module 
+                # forward feature module
                 states_prime, emb_prime = self.forward_feature(region,X,X_mask,time_seq)
                 feat_data_loss = self.feat_data_loss(states_prime,y,y_mask,y_w)
                 kd_loss_target, kd_loss_emb = self.kd_loss(states_data,states_prime,emb,emb_prime,y_mask,y_w)
@@ -1078,7 +1078,7 @@ class EINN(nn.Module):
 
                 total_loss += self.loss_weights['feat_data']*feat_data_loss +\
                             self.loss_weights['kd_target']*kd_loss_target +\
-                                self.loss_weights['kd_emb']* kd_loss_emb 
+                                self.loss_weights['kd_emb']* kd_loss_emb
             else:
                 feat_data_loss = torch.tensor(0.0,dtype=dtype,device=self.device)
                 kd_loss_target = torch.tensor(0.0,dtype=dtype,device=self.device)
@@ -1167,7 +1167,7 @@ class EINN(nn.Module):
                 pass
             else:
                 self.predict_save()
-                return 
+                return
         except:
             raise Exception('no model loaded')
 
@@ -1176,7 +1176,7 @@ class EINN(nn.Module):
 
         """  train time + ode + feat """
         self.train_time_ode_feat()
-        
+
         """  add ODE-F and train output layer """
         self.train_out_layers()
 
@@ -1184,29 +1184,29 @@ class EINN(nn.Module):
         self.predict_save()
         # plot training losses
         self.plot_loss()
-        return 
+        return
 
     def train_time_ode(self):
         ''' alternate training avoids messing up the ODE initialization '''
 
         print('\n====== train time nn + ode =======')
         EPOCHS = self.num_epochs
-        self._train(epochs=EPOCHS,time_reps=1,time_ode_reps=1,feat_time_reps=0,out_reps=0)  
-        return 
+        self._train(epochs=EPOCHS,time_reps=1,time_ode_reps=1,feat_time_reps=0,out_reps=0)
+        return
 
     def train_time_ode_feat(self):
         ''' resets ode, trains time + feature'''
-        
+
         print('\n====== train time + ode + feat =======')
         EPOCHS = self.num_epochs
-        self._train(epochs=EPOCHS,time_reps=0,time_ode_reps=0,feat_time_reps=1,out_reps=0)  
-        return 
+        self._train(epochs=EPOCHS,time_reps=0,time_ode_reps=0,feat_time_reps=1,out_reps=0)
+        return
 
     def train_out_layers(self):
 
         print('\n====== train out layer + ode params =======')
-        EPOCHS = self.num_epochs  
-        self._train(epochs=EPOCHS,time_reps=0,time_ode_reps=0,feat_time_reps=0,out_reps=1)  
+        EPOCHS = self.num_epochs
+        self._train(epochs=EPOCHS,time_reps=0,time_ode_reps=0,feat_time_reps=0,out_reps=1)
 
-        return 
+        return
 
