@@ -106,7 +106,6 @@ def create_window_seqs(
     """
     # convert to small sequences for training, starting with length 10
     seqs = []; mask_seqs = []; targets = []; mask_ys = []; ys_weights = []; rmse_seqs = []
-
     # starts at sequence_length and goes until the end
     # for idx in range(min_sequence_length, X.shape[0]+1, 7): # last in range is step
     for idx in range(min_sequence_length, X.shape[0]+1, 1):
@@ -116,7 +115,9 @@ def create_window_seqs(
         # Targets
         y_val = y[idx-min_sequence_length:idx+WEEKS_AHEAD*DAY_WEEK_MULTIPLIER]
         y_ = np.ones((min_sequence_length+WEEKS_AHEAD*DAY_WEEK_MULTIPLIER,y_val.shape[1])) * pad_value
+
         y_[:y_val.shape[0],:] = y_val
+        
         # same for weights
         y_val = y_weights[idx-min_sequence_length:idx+WEEKS_AHEAD*DAY_WEEK_MULTIPLIER]
         ys_weights_ = np.ones((min_sequence_length+WEEKS_AHEAD*DAY_WEEK_MULTIPLIER,y_val.shape[1])) * pad_value
@@ -139,7 +140,6 @@ def create_window_seqs(
     mask_ys = pad_sequence(mask_ys,batch_first=True,padding_value=0).type(dtype)
     ys_weights = pad_sequence(ys_weights,batch_first=True,padding_value=pad_value).type(dtype)
     rmse_seqs = pad_sequence(rmse_seqs,batch_first=True,padding_value=pad_value).type(dtype)
-
     return seqs, mask_seqs, ys, mask_ys, ys_weights, rmse_seqs
 
 # dataset class

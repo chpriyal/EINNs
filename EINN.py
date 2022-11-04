@@ -22,6 +22,7 @@ import pdb
 dtype = torch.float
 regions = all_hhs_regions  # for rnn
 
+STDEV = 1
 
 class EINN(nn.Module):
     def __init__(
@@ -79,8 +80,11 @@ class EINN(nn.Module):
         r_seqs = np.array(r_seqs)  # shape: [regions, time, features]
         r_ys = np.array(r_ys)  # shape: [regions, time, 1]
         r_S_rmse = np.array(r_S_rmse)  # shape: [regions, time, 1]
-
+        # print(r_seqs.shape)
+        # print(r_ys.shape)
+        # print(r_S_rmse.shape)
         # Normalize
+
         # One scaler per state
         seq_scalers = dict(zip(regions, [StandardScaler() for _ in range(len(regions))]))
         ys_scalers = dict(zip(regions, [TorchStandardScaler() for _ in range(len(regions))]))
@@ -99,8 +103,9 @@ class EINN(nn.Module):
         # two of them are used during training
         self.rmse_scalers = rmse_scalers
         self.ys_scalers = ys_scalers
-
+        #print(r_seqs_norm)
         ''' Prepare train and validation dataset '''
+        #exit()
 
         def create_time_seq(no_sequences, sequence_length):
             """
@@ -117,11 +122,14 @@ class EINN(nn.Module):
 
         states, seqs, seqs_masks, y, y_mask, y_weights, rmse_seqs, time_seqs = [], [], [], [], [], [], [], []
         test_states, test_seqs, test_seqs_masks, test_time_seq = [], [], [], []
+        
         for region, seq, ys, rmse in zip(regions, r_seqs_norm, r_ys_norm, r_rmse_norm):
             ys_weights = np.ones((ys.shape[0],1))
             ys_weights[-14:] *= 5
+            # print(rmse.shape)
+            
             seq, seq_mask, ys, ys_mask, ys_weight, rmse_seq = create_window_seqs(seq,rmse,ys,ys_weights,min_sequence_length)
-            # normal
+
             states.extend([region for _ in range(seq.shape[0])])
             seqs.append(seq)
             seqs_masks.append(seq_mask)
@@ -137,7 +145,6 @@ class EINN(nn.Module):
             test_states.append(region)
             test_seqs.append(seq[[-1]]); test_seqs_masks.append(seq_mask[[-1]])
             test_time_seq.append(time_seq[[-1]])
-
         # train and validation data, combine
         regions_train = np.array(states, dtype="str").tolist()
         X_train = torch.cat(seqs,axis=0).float().numpy()
@@ -147,8 +154,6 @@ class EINN(nn.Module):
         y_weights_train = torch.cat(y_weights,axis=0).float().numpy()
         rmse_train = torch.cat(rmse_seqs,axis=0).float().numpy()
         time_train = torch.cat(time_seqs,axis=0).float().numpy()
-
-
         # same for test
         regions_test = np.array(test_states, dtype="str").tolist()
         X_test = torch.cat(test_seqs,axis=0).float().numpy()
@@ -165,6 +170,23 @@ class EINN(nn.Module):
         empty = np.zeros_like(regions_test)
         test_dataset = SeqData(regions_test, X_test, X_mask_test, empty, empty, empty, empty, time_test)
 
+
+        # print(train_dataset.rmse)
+        # Adding noise to the training data
+        for ind1 in range(train_dataset.rmse.shape[2]):
+            for ind2 in range(train_dataset.rmse.shape[0]):
+                numel = train_dataset.rmse.shape[1]-(train_dataset.rmse[ind2,:,ind1] == -9).sum()
+                # print(numel)
+                noise = np.random.normal(0,STDEV,numel)
+                ind4 = 0
+                for ind3 in range(train_dataset.rmse.shape[1]):
+                    if train_dataset.rmse[ind2,ind3,ind1] == -9:
+                        continue
+                    train_dataset.rmse[ind2,ind3,ind1] += noise[ind4]
+
+        # print(train_dataset.rmse)
+        # exit()
+
         # create dataloaders for each region
         self.data_loaders = {}
         for r in regions:
@@ -174,6 +196,7 @@ class EINN(nn.Module):
             self.data_loaders[r] = r_train_loader
         print(time.time() - start ,' seconds')
         # test data loader is small so we can use only one
+
         self.test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=self.batch_size, shuffle=True, pin_memory=True)
 
         """ create set of ODEs"""
@@ -181,11 +204,14 @@ class EINN(nn.Module):
         self.pop = {}
         for region in regions:
             self.pop[region] = df.at[region,'PopulationEstimate2019']
-
+        # print(self.pop)
+        # exit()
         """ Create models, one per region """
         self.encoder = EncoderModules(regions,X_train.shape[2],self.device)
         self.decoder = DecoderModules(regions,self.device)
         self.out_layer = OutputModules(regions,self.device)
+
+        
         out_layer_width = 20
         self.time_nn_mod = \
             time_pnn_fourier(
@@ -280,9 +306,22 @@ class EINN(nn.Module):
         '''
             Feature module forward pass
         '''
+        # print(time_seq[1].shape)
+        # print(time_seq[1])
+        # print(time_seq[-2])
+        # print(time_seq[-1])
+        
+        # print(len(region))
+        # print(X.shape)
+        # print(X_mask.shape)
+        # exit()
         X_embeds = self.encoder.mods['encoder_'+region[0]].forward_mask(X.transpose(1, 0), X_mask.transpose(1, 0))
         time_seq = time_seq[:,-WEEKS_AHEAD*DAY_WEEK_MULTIPLIER:,:]
+        # print(time_seq.shape)
+        # exit()
         Hi_data = (time_seq - self.t_min)/(self.t_max - self.t_min)
+        # print(Hi_data.shape)
+        # exit()
         emb_prime = self.decoder.mods['decoder_'+region[0]](Hi_data,X_embeds)
         states_prime = self.out_layer.mods['output_'+region[0]](emb_prime)
         return states_prime, emb_prime
@@ -872,7 +911,7 @@ class EINN(nn.Module):
 
                 # forward feature module
                 states_prime, _ = self.forward_feature(region,X,X_mask,time_seq)
-
+                # print(states_pri)
                 ys_data_mask = y_mask
                 total_data_target_tokens = torch.sum(ys_data_mask != 0).cpu() # denominator of loss
                 criterion = nn.MSELoss(reduction='none')
@@ -893,7 +932,6 @@ class EINN(nn.Module):
     def _train(self,epochs,time_reps,time_ode_reps,feat_time_reps,out_reps):
 
         self.train_start_flag.append(self.epoch)  # save epoch where we start this training, used in loss plot
-
         ############## optimizers #############
         # time nn only
         time_params = itertools.chain(self.time_nn_mod.parameters(),self.out_layer.parameters())
