@@ -36,6 +36,9 @@ if __name__ == "__main__":
     parser.add_argument('--dev',type=str, default='cuda:1',help='')
     parser.add_argument('--exp',type=str, default='1',help='Experiment number/id')
     parser.add_argument('--step',type=str, default='1',help='Step between prediction weeks')
+    parser.add_argument('--noise',type=str, default=False,help='S, E, I, R, M, all')
+    parser.add_argument('--stdev',type=float, default=1.0,help='Standard deviation of the noise')
+    
     parser.set_defaults(p=False)
     
     args = parser.parse_args()

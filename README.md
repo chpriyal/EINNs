@@ -21,7 +21,7 @@ conda env create -f requirements.yml
 The following command will train and predict for all regions from epidemic week 202036 to 202109:
 
 ```bash
-python main.py --region AL --dev cpu --exp 400 --start_ew 202036 --end_ew 202109 --step 2
+python main.py --region all --exp 1 -- noise S --stdev 1 --dev cuda
 ```
 
 More examples can be found in ```run.sh```.

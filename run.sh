@@ -1,7 +1,7 @@
 
 
 #""" in one region """
-python main.py --exp 400 
+python main.py --exp 1 --noise S --stdev 1 --dev cuda
 
 #""" Only a few regions """
 
