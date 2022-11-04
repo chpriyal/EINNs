@@ -1,6 +1,6 @@
 {
     "BATCH_SIZE":512,
-    "NUM_EPOCHS":100,
+    "NUM_EPOCHS":10,
     "LEARNING_RATE":1e-3,
     "INIT_ODE":true,
     "KEEP_TRAINING":true,
