@@ -1,7 +1,7 @@
 
 
 #""" in one region """
-python main.py --dev cuda --exp 400 --start_ew 202036 --end_ew 202109 --step 2 --region AL
+python main.py --exp 400 
 
 #""" Only a few regions """
 
