@@ -170,41 +170,37 @@ class EINN(nn.Module):
         # note: y_val, y_mask_val, y_weights_val, rmse_val, are not needed at test time
         empty = np.zeros_like(regions_test)
         test_dataset = SeqData(regions_test, X_test, X_mask_test, empty, empty, empty, empty, time_test)
-
+        # print(train_dataset.rmse.shape)
         if(self.noise):
         # Adding noise to the training data
-            for ind1 in range(train_dataset.rmse.shape[2]):
-                if(self.noise == 'all'):
-                    for ind2 in range(train_dataset.rmse.shape[0]):
-                        numel = (train_dataset.rmse[ind2,:,ind1] != -9).sum()
-                        noise = np.random.normal(0,1,numel)
-                        ind4 = 0
-                        for ind3 in range(train_dataset.rmse.shape[1]):
-                            if train_dataset.rmse[ind2,ind3,ind1] == -9:
-                                continue
-                            train_dataset.rmse[ind2,ind3,ind1] += noise[ind4]
-                            ind4+=1
-                else:
-                    if self.noise== "S":
-                        ind2 = 0
-                    if self.noise== "E":
-                        ind2 = 1
-                    if self.noise== "I":
-                        ind2 = 2
-                    if self.noise== "R":
-                        ind2 = 3
-                    if self.noise== "M":
-                        ind2 = 4
-                    for ind2 in range(train_dataset.rmse.shape[0]):
-                        numel = train_dataset.rmse.shape[1]-(train_dataset.rmse[ind2,:,ind1] == -9).sum()
-                        noise = np.random.normal(0,1,numel)
-                        ind4 = 0
-                        for ind3 in range(train_dataset.rmse.shape[1]):
-                            if train_dataset.rmse[ind2,ind3,ind1] == -9:
-                                continue
-                            train_dataset.rmse[ind2,ind3,ind1] += noise[ind4]
-                            ind4+=1
+            if(self.noise == 'all'):
+                for ind2 in range(train_dataset.rmse.shape[2]):
+                    for ind1 in range(train_dataset.rmse.shape[0]):
+                        numel = (train_dataset.rmse[ind1,:,ind2] != -9).sum()
+                        noise = np.random.normal(0,self.stdev ,numel)
+                        train_dataset.rmse[ind1,:noise.shape[0],ind2]+=noise
+                        # noise = noise[1:]
+            else:
+                if self.noise== "S":
+                    ind2 = 0
+                if self.noise== "E":
+                    ind2 = 1
+                if self.noise== "I":
+                    ind2 = 2
+                if self.noise== "R":
+                    ind2 = 3
+                if self.noise== "M":
+                    ind2 = 4
+                # noise = np.random.normal(0,self.stdev ,train_dataset.rmse.shape[1])
+                for ind1 in range(train_dataset.rmse.shape[0]):
+                    numel = (train_dataset.rmse[ind1,:,ind2] != -9).sum()
+                    noise = np.random.normal(0,self.stdev ,numel)
+                    train_dataset.rmse[ind1,:noise.shape[0],ind2]+=noise
             print("Noise added to {} with stand dev = {}".format(self.noise, self.stdev))
+        # print(train_dataset.rmse[0])
+        # print("Second")
+        # print("Second")
+        # print(train_dataset.rmse[1])
         # exit()
         # create dataloaders for each region
         self.data_loaders = {}
